@@ -1,19 +1,64 @@
-/* pos2pov.cc */
+// rattle.cc
+
 #include <ShapeConvexPolyhedron.h> 
 #include <iostream>
-
 #include "QuaternionMultiply.h"
 
+using namespace std;
 using namespace hpmc;
 using namespace hpmc::detail;
-using namespace std;
 
-char *write_tuple(vec3<Scalar> vvv, char *s){
-  sprintf(s, "<%g, %g, %g>", vvv.x, vvv.y, vvv.z);
-  return s;
+quat<Scalar> getQuaternion(Scalar angle, vec3<Scalar> axis){
+  Scalar st2 = sin(angle/2);
+  return quat<Scalar>(cos(angle/2), vec3<Scalar>(axis.x*st2, axis.y*st2, axis.z*st2));
 }
 
 int main(){
+
+  // read the .pos file
+  readPOSFile();
+
+  // replicate to form supercell
+  
+  // loop through each shape in main cell
+  
+  // translate shape in recursive search of space
+  
+  // give output for each contiguous point found
+    int overlaptest(){
+      quat<Scalar> q2(1, vec3<Scalar>(0,0,0)); 
+
+      poly3d_verts p3dv;
+
+      // create two identical tri-rectangular tetrahedra
+      p3dv.N = 4;
+      p3dv.v[0] = vec3<Scalar>(-0.25,-0.25,-0.25);
+      p3dv.v[1] = vec3<Scalar>(0.75,-0.25,-0.25);
+      p3dv.v[2] = vec3<Scalar>(-0.25,0.75,-0.25);
+      p3dv.v[3] = vec3<Scalar>(-0.25,-0.25,0.75);
+
+      ShapeConvexPolyhedron shape2(q2, p3dv); 
+
+      Scalar sqrt3 = sqrt(3.0)/3;
+
+      for (Scalar angle = 0; angle < 2; angle +=0.025) {
+	quat<Scalar> q = getQuaternion(3.14159*angle, vec3<Scalar>(sqrt3,sqrt3,sqrt3)); 
+	ShapeConvexPolyhedron shape1(q, p3dv); 
+	Scalar x;
+	for (x=0.0; x<1.1; x+=.01){ // slide to the right until no overlap
+	  vec3<Scalar>r_ab(x, 0, 0);
+	  unsigned int err=0;
+	  if (!test_overlap<ShapeConvexPolyhedron,ShapeConvexPolyhedron>(r_ab, shape1, shape2, err)) break;
+	} // end for x
+	cout << "for angle = " << angle << ", overlap stops at x = " << x << endl;
+      } // end for angle
+
+
+} // end main
+
+//------------------------------------
+
+int readPOSFile(){
 
   // reference vectors for tetrahedra
   vec3<Scalar> canonical0(1,1,1);
@@ -84,6 +129,18 @@ int main(){
     cout << "triangle {" << write_tuple(v0, s1) << ", " << write_tuple(v1, s2) << ", " << write_tuple(v3, s3) << " texture{ pigment{ color " << color << " " << transmit << " }" << finish << "}}" << endl;
     cout << "triangle {" << write_tuple(v0, s1) << ", " << write_tuple(v2, s2) << ", " << write_tuple(v3, s3) << " texture{ pigment{ color " << color << " " << transmit << " }" << finish << "}}" << endl;
     cout << "triangle {" << write_tuple(v1, s1) << ", " << write_tuple(v2, s2) << ", " << write_tuple(v3, s3) << " texture{ pigment{ color " << color << " " << transmit << " }" << finish << "}}" << endl;
+
+    // create object for each record
+
+    list<int> L;
+    L.push_back(0);              // Insert a new element at the end
+    L.push_front(0);             // Insert a new element at the beginning
+    L.insert(++L.begin(),2);     // Insert "2" before position of first argument
+    L.push_back(5);
+    L.push_back(6);
+    list<int>::iterator i;
+    for(i=L.begin(); i != L.end(); ++i) cout << *i << " ";
+    cout << endl;
 
   }
 }

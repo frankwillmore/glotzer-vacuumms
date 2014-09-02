@@ -12,9 +12,15 @@ using namespace hpmc::detail;
 poly3d_verts tetrahedron_verts;
 vector<void *> v_scp;
 vector<vec3<Scalar>* > v_offsets;
-vector<void *> v_verlet;
+vector<void *> v_verlet_scp;
+vector<vec3<Scalar>* > v_verlet_offsets;
+unsigned int recursion_matrix[256][256][256];
+Scalar resolution = 0.01;
+Scalar verlet_sq = 9.0;
 
 int readPOSFile();
+void rattleShape(unsigned int shape_of_interest);
+void visit(unsigned int shape_of_interest, int _i, int _j, int _k);
 
 double box_x=0, box_y=0, box_z=0;
 
@@ -29,117 +35,79 @@ int main(){
   tetrahedron_verts.v[3] = vec3<Scalar>(1,-1,-1);
 
   // Create a reference shape to probe with...
-  quat<Scalar> q(1, vec3<Scalar>(1, 1, 1)); // not a real representation, but just to test
-  ShapeConvexPolyhedron scp_probe(getQuaternion(0, vec3<Scalar>(1,0,0)), tetrahedron_verts);
+  //quat<Scalar> q(1, vec3<Scalar>(1, 1, 1)); // not a real representation, but just to test
+  //ShapeConvexPolyhedron scp_probe(getQuaternion(0, vec3<Scalar>(1,0,0)), tetrahedron_verts);
   //ShapeConvexPolyhedron scp_probe(q, tetrahedron_verts);
 
-  // read the .pos file
+unsigned int shape_no=123;
+
   int n_shapes = readPOSFile();
+  cerr << n_shapes << " shapes read.\n";
 
-  cout << n_shapes << " shapes read.\n";
-
-  rattleShape(unsigned int shape_number); 
-
-/*
-  // check overlap with dummy probe
-  for (int i=0; i<n_shapes; i++) {
-    ShapeConvexPolyhedron *p_scp = (ShapeConvexPolyhedron *)(v_scp[i]);
-    ShapeConvexPolyhedron scp = *p_scp;
-    vec3<Scalar>r_ab = *v_offsets[i];
-    unsigned int err;
-    if (test_overlap<ShapeConvexPolyhedron,ShapeConvexPolyhedron>(r_ab, scp_probe, scp, err)) cout << "bump! " << i << endl;
-  }   
-*/
-
-  // replicate to form supercell
-  // loop through each shape in main cell
-  // translate shape in recursive search of space
-  // give output for each contiguous point found
-  // if (!test_overlap<ShapeConvexPolyhedron,ShapeConvexPolyhedron>(r_ab, shape1, shape2, err)) break;
+  rattleShape(shape_no); // pick a shape and rattle it
 
 } // end main
 
-void rattleShape(unsigned int shape_number){
 
-  Scalar x = v_offsets[shape_number].x;
-  Scalar y = v_offsets[shape_number].y;
-  Scalar z = v_offsets[shape_number].z;
+void rattleShape(unsigned int shape_of_interest){
 
-  for (int i=0; i<n_shapes; i++) { // build a verlet list around shape of interest
+  for (int i=0; i<v_scp.size(); i++) { // build a verlet list around shape of interest
 
-    if (i==shape_number) continue; // cos we don't count ourself
-    Scalar dx = v_offsets[i].x - x; Scalar dy = v_offsets[i].y - y; Scalar dz = v_offsets[i].z - z;
-    if ((dx*dx + dy*dy + dz*dz) < verlet_sq) v_verlet.push_back(v_scp[i]);
-
+    if (i==shape_of_interest) continue; // cos we don't count ourself
+    Scalar dx = v_offsets[i]->x - v_offsets[shape_of_interest]->x; Scalar dy = v_offsets[i]->y - v_offsets[shape_of_interest]->y; Scalar dz = v_offsets[i]->z - v_offsets[shape_of_interest]->z;
+    if ((dx*dx + dy*dy + dz*dz) < verlet_sq) {
+      v_verlet_scp.push_back(v_scp[i]);
+      v_verlet_offsets.push_back(v_offsets[i]);
+    }
   } // done building Verlet list
 
-  // loop over set of rattlers
-  //for (rattler = 0; rattler < number_of_rattlers; rattler++)
-  //{
-  
-  int i, j, k; // indices for recursion matrix
-  
+cerr << "verlet size = " << v_verlet_scp.size();
+
   // clear recursion_matrix
-  for (i=0; i<256; i++) for (j=0; j<256; j++) for (k=0; k<256; k++) recursion_matrix[i][j][k] = 0;
-  // start recursion with rattler 0
-  //                         test_x = x[rattler];
-  //                             test_y = y[rattler];
-  //                                 test_z = z[rattler];
-  //                                     makeVerletList();
-  //                                         visit(128, 128, 128);
-  //                                           }
-  //
-  //                                             return 0;
-  //                                             }
-  //
-  // visiting implies that site has already been determined to be included
-  void visit(int _i, int _j, int _k)
-  {
-  recursion_matrix[_i][_j][_k] = 1; // mark the visited point
-  test_x = verlet_center_x + (_i - 128) * resolution;
-  test_y = verlet_center_y + (_j - 128) * resolution;
-  test_z = verlet_center_z + (_k - 128) * resolution;
-  printf("%06d\t%f\t%f\t%f\n", rattler, test_x, test_y, test_z);
-  
-  // check each neighbor for inclusion, and if included, then visit it...
-  test_x = verlet_center_x + (_i - 129) * resolution;
-  if (!recursion_matrix[_i - 1][_j][_k] && checkInclusion(test_x, test_y, test_z)) visit(_i - 1, _j, _k);
-  test_x = verlet_center_x + (_i - 127) * resolution;
-  if (!recursion_matrix[_i + 1][_j][_k] && checkInclusion(test_x, test_y, test_z)) visit(_i + 1, _j, _k);
-  
-  test_x = verlet_center_x + (_i - 128) * resolution;
-  test_y = verlet_center_y + (_j - 129) * resolution;
-  if (!recursion_matrix[_i][_j - 1][_k] && checkInclusion(test_x, test_y, test_z)) visit(_i, _j - 1, _k);
-  test_y = verlet_center_y + (_j - 127) * resolution;
-  if (!recursion_matrix[_i][_j + 1][_k] && checkInclusion(test_x, test_y, test_z)) visit(_i, _j + 1, _k);
-  
-  test_y = verlet_center_y + (_j - 128) * resolution;
-  test_z = verlet_center_z + (_k - 129) * resolution;
-  if (!recursion_matrix[_i][_j][_k - 1] && checkInclusion(test_x, test_y, test_z)) visit(_i, _j, _k - 1);
-  test_z = verlet_center_z + (_k - 127) * resolution;
-  if (!recursion_matrix[_i][_j][_k + 1] && checkInclusion(test_x, test_y, test_z)) visit(_i, _j, _k + 1);
-  }
-  
-  int checkInclusion(double test_x, double test_y, double test_z)
-  {
-  printf("Checking inclusion of %lf, %lf, %lf\n", test_x, test_y, test_z);
-  int i;
-  double dx, dy, dz, dd;
-  for (i=0; i < close_rattlers; i++)
-  {
-  dx = test_x - close_x[i];
-  dy = test_y - close_y[i];
-  dz = test_z - close_z[i];
-  dd = dx*dx + dy*dy + dz*dz;
-  if (dd < diameter_sq) return 0; // inside the diameter of another, so we don't count it.
-  }
-  
-  return 1; // it's not inside of any of the surrounding rattlers, so it's 'free' 
-  }
-  
- 
+  for (int i=0; i<256; i++) for (int j=0; j<256; j++) for (int k=0; k<256; k++) recursion_matrix[i][j][k] = 0;
+
+  // initiate recursive search of space
+  visit(shape_of_interest, 128, 128, 128);
 
 } // end rattleShape()
+  
+
+void visit(unsigned int shape_of_interest, int _i, int _j, int _k) {
+
+//cout << "entering visit() with " << _i << " " << _j << " " << _k << endl;
+
+  if (recursion_matrix[_i][_j][_k]) return; // already  visited
+  recursion_matrix[_i][_j][_k] = 1; // mark the visited point
+
+  ShapeConvexPolyhedron scp_of_interest = *((ShapeConvexPolyhedron *)v_scp[shape_of_interest]); // retrieve the shape object of interest
+
+  for (int i_shape=0; i_shape<v_verlet_scp.size(); i_shape++) {
+
+    ShapeConvexPolyhedron scp = *((ShapeConvexPolyhedron *)v_verlet_scp[i_shape]); // retrieve the shape object i_shape
+    vec3<Scalar> r_ab; 
+    r_ab.x = v_offsets[shape_of_interest]->x - v_verlet_offsets[i_shape]->x + (_i - 128) * resolution;
+    r_ab.y = v_offsets[shape_of_interest]->y - v_verlet_offsets[i_shape]->y + (_j - 128) * resolution;
+    r_ab.z = v_offsets[shape_of_interest]->z - v_verlet_offsets[i_shape]->z + (_k - 128) * resolution;
+    unsigned int err;
+    
+    if (test_overlap<ShapeConvexPolyhedron,ShapeConvexPolyhedron>(r_ab, scp, scp_of_interest, err)) {
+//cout << " overlapping with i_shape = " << i_shape;
+      return;
+    }
+
+  } // end for i_shape loop over verlet
+
+  // no overlap was found, so the point is good. Record it and visit the neighbors.
+  printf("%06d\t%f\t%f\t%f\n", shape_of_interest, v_offsets[shape_of_interest]->x + (_i - 128) * resolution, 
+           v_offsets[shape_of_interest]->y + (_j - 128) * resolution, v_offsets[shape_of_interest]->z + (_k - 128) * resolution);
+
+  // visit each neighbor
+  visit(shape_of_interest, _i - 1, _j, _k); visit(shape_of_interest, _i + 1, _j, _k);
+  visit(shape_of_interest, _i, _j - 1, _k); visit(shape_of_interest, _i, _j + 1, _k);
+  visit(shape_of_interest, _i, _j, _k - 1); visit(shape_of_interest, _i, _j, _k + 1);
+
+}
+  
 
 int readPOSFile(){
 
@@ -163,7 +131,7 @@ int readPOSFile(){
       box_x = strtod(strtok(NULL, "\t"), NULL);
       box_y = strtod(strtok(NULL, "\t"), NULL);
       box_z = strtod(strtok(NULL, "\n"), NULL);
-      cout << "got box = " << box_x << " x " << box_y << " x " << box_z << endl;
+      cerr << "got box = " << box_x << " x " << box_y << " x " << box_z << endl;
       continue;
     }
     // if it doesn't look like a shapeID then toss it. 

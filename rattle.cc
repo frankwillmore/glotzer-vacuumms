@@ -9,7 +9,7 @@ using namespace std;
 using namespace hpmc;
 using namespace hpmc::detail;
 
-poly3d_verts tetrahedron_verts;
+poly3d_verts verts;
 vector<void *> v_scp;
 vector<vec3<Scalar>* > v_offsets;
 vector<void *> v_verlet_scp;
@@ -24,32 +24,22 @@ void visit(unsigned int shape_of_interest, int _i, int _j, int _k);
 
 double box_x=0, box_y=0, box_z=0;
 
+
 int main(){
-
-  // create the poly3d_verts object to represent tetrahedra
-  // poly3d_verts tetrahedron_verts;
-  tetrahedron_verts.N = 4;
-  tetrahedron_verts.v[0] = vec3<Scalar>(1,1,1);
-  tetrahedron_verts.v[1] = vec3<Scalar>(-1,-1,1);
-  tetrahedron_verts.v[2] = vec3<Scalar>(-1,1,-1);
-  tetrahedron_verts.v[3] = vec3<Scalar>(1,-1,-1);
-
-  // Create a reference shape to probe with...
-  //quat<Scalar> q(1, vec3<Scalar>(1, 1, 1)); // not a real representation, but just to test
-  //ShapeConvexPolyhedron scp_probe(getQuaternion(0, vec3<Scalar>(1,0,0)), tetrahedron_verts);
-  //ShapeConvexPolyhedron scp_probe(q, tetrahedron_verts);
-
-unsigned int shape_no=123;
 
   int n_shapes = readPOSFile();
   cerr << n_shapes << " shapes read.\n";
 
-  rattleShape(shape_no); // pick a shape and rattle it
+  for (int i=0; i<n_shapes; i++) rattleShape(i); // rattle each shape
 
 } // end main
 
 
 void rattleShape(unsigned int shape_of_interest){
+
+  // clear old Verlet lists
+  v_verlet_scp.clear();
+  v_verlet_offsets.clear();
 
   for (int i=0; i<v_scp.size(); i++) { // build a verlet list around shape of interest
 
@@ -61,8 +51,6 @@ void rattleShape(unsigned int shape_of_interest){
     }
   } // done building Verlet list
 
-cerr << "verlet size = " << v_verlet_scp.size();
-
   // clear recursion_matrix
   for (int i=0; i<256; i++) for (int j=0; j<256; j++) for (int k=0; k<256; k++) recursion_matrix[i][j][k] = 0;
 
@@ -73,8 +61,6 @@ cerr << "verlet size = " << v_verlet_scp.size();
   
 
 void visit(unsigned int shape_of_interest, int _i, int _j, int _k) {
-
-//cout << "entering visit() with " << _i << " " << _j << " " << _k << endl;
 
   if (recursion_matrix[_i][_j][_k]) return; // already  visited
   recursion_matrix[_i][_j][_k] = 1; // mark the visited point
@@ -90,10 +76,7 @@ void visit(unsigned int shape_of_interest, int _i, int _j, int _k) {
     r_ab.z = v_offsets[shape_of_interest]->z - v_verlet_offsets[i_shape]->z + (_k - 128) * resolution;
     unsigned int err;
     
-    if (test_overlap<ShapeConvexPolyhedron,ShapeConvexPolyhedron>(r_ab, scp, scp_of_interest, err)) {
-//cout << " overlapping with i_shape = " << i_shape;
-      return;
-    }
+    if (test_overlap<ShapeConvexPolyhedron,ShapeConvexPolyhedron>(r_ab, scp, scp_of_interest, err)) return;
 
   } // end for i_shape loop over verlet
 
@@ -134,7 +117,30 @@ int readPOSFile(){
       cerr << "got box = " << box_x << " x " << box_y << " x " << box_z << endl;
       continue;
     }
-    // if it doesn't look like a shapeID then toss it. 
+
+    // did we get the shape declarator spec line?
+    if (!strcmp(first, "shape")) {
+
+      // this will grab rest of line, chop out the quotes
+      char *tokens = strtok(NULL, "\"");
+      char *shape_type = strtok(tokens, " ");
+      if (!strcmp(shape_type, "poly3d")) {
+	unsigned int n_vertices = strtol(strtok(NULL, " "), NULL, 10);
+	verts.N = n_vertices;
+	for(int i=0; i<n_vertices; i++){ // read triples
+	  Scalar s1 = strtod(strtok(NULL, "\t"), NULL); 
+	  Scalar s2 = strtod(strtok(NULL, "\t"), NULL); 
+	  Scalar s3 = strtod(strtok(NULL, "\t"), NULL); 
+	  verts.v[i] = vec3<Scalar>(s1, s2, s3);
+	}
+
+      } // end if poly3d
+
+      continue; // keep reading the POS file... 
+
+    } // end if shape
+
+    // From here on, we assume we're reading shapes; if it doesn't look like a shapeID then toss it. 
     if (first[0] != 'f' || first[1] != 'f') continue;
 
     shapes_read++;
@@ -149,7 +155,7 @@ int readPOSFile(){
 
     // construct the quaternion, shape, and offset
     quat<Scalar> q(qs, vec3<Scalar>(qx, qy, qz));
-    ShapeConvexPolyhedron *scp = new ShapeConvexPolyhedron(q, tetrahedron_verts);
+    ShapeConvexPolyhedron *scp = new ShapeConvexPolyhedron(q, verts);
     v_scp.push_back((void *)scp);
 
     vec3<Scalar> *offset = new vec3<Scalar>(x, y, z);

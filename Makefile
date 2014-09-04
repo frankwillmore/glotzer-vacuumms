@@ -11,8 +11,12 @@ pos2pov: pos2pov.cc
 		-I$(BOOST_ROOT)/include -o pos2pov
 
 rattle: rattle.cc
-	c++ rattle.cc -I$(GLOTZER_HOME)/hoomd-plugin-hpmc/cppmodule -I$(GLOTZER_HOME)/hoomd-install/include/ -I$(TACC_CUDA_INC) -I/opt/apps/intel13/mvapich2/1.9/include \
+	c++ -g rattle.cc -I$(GLOTZER_HOME)/hoomd-plugin-hpmc/cppmodule -I$(GLOTZER_HOME)/hoomd-install/include/ -I$(TACC_CUDA_INC) -I/opt/apps/intel13/mvapich2/1.9/include \
 		-I$(BOOST_ROOT)/include -o rattle
+
+testit: testit.cc
+	c++ testit.cc -I$(GLOTZER_HOME)/hoomd-plugin-hpmc/cppmodule -I$(GLOTZER_HOME)/hoomd-install/include/ -I$(TACC_CUDA_INC) -I/opt/apps/intel13/mvapich2/1.9/include \
+		-I$(BOOST_ROOT)/include -o testit
 
 install: pos2pov rattle
 	cp pos2pov rattle ../bin/

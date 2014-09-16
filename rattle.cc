@@ -4,6 +4,7 @@
 #include <iostream>
 #include "QuaternionMultiply.h"
 #include <vector>
+//#include <ftw_param.h>
 
 using namespace std;
 using namespace hpmc;
@@ -15,22 +16,58 @@ vector<vec3<Scalar>* > v_offsets;
 vector<void *> v_verlet_scp;
 vector<vec3<Scalar>* > v_verlet_offsets;
 unsigned int recursion_matrix[256][256][256];
-Scalar resolution = 0.01;
-Scalar verlet_sq = 9.0;
+Scalar resolution = 0.01; double _resolution;
+Scalar verlet_sq = 9.0;   double _verlet_sq;
+int n_shapes;
+char format[256] = "rat";
 
 int readPOSFile();
+void applyBoundary();
 void rattleShape(unsigned int shape_of_interest);
 void visit(unsigned int shape_of_interest, int _i, int _j, int _k);
+void writeOutput(int shape_of_interest, Scalar x, Scalar y, Scalar z);
+
+extern "C" {
+  void setCommandLineParameters(int argc, char **argv);
+  int getFlagParam(char *arg);
+  void getDoubleParam(char*, double*);
+  void getStringParam(char*, char**);
+};
 
 double box_x=0, box_y=0, box_z=0;
 
 
-int main(){
+int main(int argc, char **argv){
 
-  int n_shapes = readPOSFile();
+  // First get the command line options sorted
+  setCommandLineParameters(argc, argv);
+
+  if (getFlagParam("--usage") || getFlagParam("-u")) {
+    printf("usage:       rattle      STDIN:      .pos file\n");
+    printf("                         STDOUT:     .pov or .rat:  nnnnnn\tx.xxxxxx\ty.yyyyyy\tz.zzzzzz\n");
+    printf("                         STDERR:     progress messages\n\n");
+    printf("                         -f,--format [ .rat ] \n");
+    printf("                         -r,--resolution [0.01]  \n");
+    printf("                         -v,--verlet_sq [9.0]  \n");
+    printf("\n");
+  }
+  if(getFlagParam("--resolution")) {getDoubleParam("--resolution", &_resolution); resolution = (Scalar)_resolution;}
+  if(getFlagParam("-r"))           {getDoubleParam("-r", &_resolution);           resolution = (Scalar)_resolution;}
+  if(getFlagParam("--verlet_sq"))  {getDoubleParam("--verlet_sq", &_verlet_sq);   verlet_sq = (Scalar)_verlet_sq;}
+  if(getFlagParam("-v"))           {getDoubleParam("-v", &_verlet_sq);            verlet_sq = (Scalar)_verlet_sq;}
+  getStringParam("--format", (char **)&format); getStringParam("-f", (char **)&format);
+
+cout << "format=" << format << endl;
+exit(0);
+
+  // Now read the input
+  n_shapes = readPOSFile();
   cerr << n_shapes << " shapes read.\n";
 
+  applyBoundary(); // First n_shapes is original shape, will add 7 boxes (X, Y, Z, XY, XZ, YZ, XYZ) to apply periodic boundary and store replicas in v_offsets.
+
   for (int i=0; i<n_shapes; i++) rattleShape(i); // rattle each shape
+  //for (int i=0; i<80; i++) rattleShape(i); // rattle each shape
 
 } // end main
 
@@ -41,14 +78,29 @@ void rattleShape(unsigned int shape_of_interest){
   v_verlet_scp.clear();
   v_verlet_offsets.clear();
 
-  for (int i=0; i<v_scp.size(); i++) { // build a verlet list around shape of interest
+  // Notes on Verlet list and periodic boundary: 
+  //   - the offset list includes locations of periodic images
+  //   - the shape list does not!
+  //   - the Verlet shape list may have redundant pointers because of different images
+  //   - the Verlet offset list will not.
+
+  // for (int i=0; i<v_scp.size(); i++) { // build a verlet list around shape of interest
+  for (int i=0; i<n_shapes; i++) { // build a verlet list around shape of interest
 
     if (i==shape_of_interest) continue; // cos we don't count ourself
-    Scalar dx = v_offsets[i]->x - v_offsets[shape_of_interest]->x; Scalar dy = v_offsets[i]->y - v_offsets[shape_of_interest]->y; Scalar dz = v_offsets[i]->z - v_offsets[shape_of_interest]->z;
-    if ((dx*dx + dy*dy + dz*dz) < verlet_sq) {
-      v_verlet_scp.push_back(v_scp[i]);
-      v_verlet_offsets.push_back(v_offsets[i]);
-    }
+
+    for (int periodic_image=0; periodic_image < 7*n_shapes; periodic_image+=n_shapes){
+
+      Scalar dx = v_offsets[i + periodic_image]->x - v_offsets[shape_of_interest]->x; 
+      Scalar dy = v_offsets[i + periodic_image]->y - v_offsets[shape_of_interest]->y; 
+      Scalar dz = v_offsets[i + periodic_image]->z - v_offsets[shape_of_interest]->z;
+      if ((dx*dx + dy*dy + dz*dz) < verlet_sq) {
+	v_verlet_scp.push_back(v_scp[i]);
+	v_verlet_offsets.push_back(v_offsets[i + periodic_image]);
+      }
+
+    } // end loop over periodic_image
+
   } // done building Verlet list
 
   // clear recursion_matrix
@@ -81,14 +133,30 @@ void visit(unsigned int shape_of_interest, int _i, int _j, int _k) {
   } // end for i_shape loop over verlet
 
   // no overlap was found, so the point is good. Record it and visit the neighbors.
-  printf("%06d\t%f\t%f\t%f\n", shape_of_interest, v_offsets[shape_of_interest]->x + (_i - 128) * resolution, 
-           v_offsets[shape_of_interest]->y + (_j - 128) * resolution, v_offsets[shape_of_interest]->z + (_k - 128) * resolution);
+  //printf("%06d\t%f\t%f\t%f\n", shape_of_interest, v_offsets[shape_of_interest]->x + (_i - 128) * resolution, 
+  //         v_offsets[shape_of_interest]->y + (_j - 128) * resolution, v_offsets[shape_of_interest]->z + (_k - 128) * resolution);
+  writeOutput(shape_of_interest, 
+	      v_offsets[shape_of_interest]->x + (_i - 128) * resolution, 
+	      v_offsets[shape_of_interest]->y + (_j - 128) * resolution, 
+	      v_offsets[shape_of_interest]->z + (_k - 128) * resolution);
 
   // visit each neighbor
   visit(shape_of_interest, _i - 1, _j, _k); visit(shape_of_interest, _i + 1, _j, _k);
   visit(shape_of_interest, _i, _j - 1, _k); visit(shape_of_interest, _i, _j + 1, _k);
   visit(shape_of_interest, _i, _j, _k - 1); visit(shape_of_interest, _i, _j, _k + 1);
 
+}
+
+
+void writeOutput(int shape_of_interest, Scalar x, Scalar y, Scalar z){
+  if (!strcmp(format, "rat")){
+    printf("%06d\t%f\t%f\t%f\n", shape_of_interest, x, y, z); 
+  } else if (!strcmp(format, "pov")){
+    cout << "pov format to be implemented here... " << endl;
+  } else {
+    cerr << "Unknown format >>>" << format << "<<<" << endl;
+    exit(1);
+  }
 }
   
 
@@ -169,4 +237,55 @@ int readPOSFile(){
   return shapes_read;
 
 } // end readPOSFile()
+
+void applyBoundary(){
+
+  for (int i=0; i<n_shapes; i++){
+
+    vec3<Scalar> *p_mirror_offset;
+    vec3<Scalar> *p_offset = v_offsets[i];
+
+    // Apply X half-box replicas
+    p_mirror_offset = new vec3<Scalar>(*p_offset);
+    if (p_offset->x < 0) p_mirror_offset->x += box_x; else p_mirror_offset->x -= box_x; 
+    v_offsets.push_back(p_mirror_offset);
+
+    // Apply Y half-box replicas
+    p_mirror_offset = new vec3<Scalar>(*p_offset);
+    if (p_offset->y < 0) p_mirror_offset->y += box_y; else p_mirror_offset->y -= box_y; 
+    v_offsets.push_back(p_mirror_offset);
+
+    // Apply Z half-box replicas
+    p_mirror_offset = new vec3<Scalar>(*p_offset);
+    if (p_offset->z < 0) p_mirror_offset->z += box_z; else p_mirror_offset->z -= box_z; 
+    v_offsets.push_back(p_mirror_offset);
+
+    // Apply XY quarter-box replicas
+    p_mirror_offset = new vec3<Scalar>(*p_offset);
+    if (p_offset->x < 0) p_mirror_offset->x += box_x; else p_mirror_offset->x -= box_x; 
+    if (p_offset->y < 0) p_mirror_offset->y += box_y; else p_mirror_offset->y -= box_y; 
+    v_offsets.push_back(p_mirror_offset);
+
+    // Apply XZ quarter-box replicas
+    p_mirror_offset = new vec3<Scalar>(*p_offset);
+    if (p_offset->x < 0) p_mirror_offset->x += box_x; else p_mirror_offset->x -= box_x; 
+    if (p_offset->z < 0) p_mirror_offset->z += box_z; else p_mirror_offset->z -= box_z; 
+    v_offsets.push_back(p_mirror_offset);
+
+    // Apply YZ quarter-box replicas
+    p_mirror_offset = new vec3<Scalar>(*p_offset);
+    if (p_offset->y < 0) p_mirror_offset->y += box_y; else p_mirror_offset->y -= box_y; 
+    if (p_offset->z < 0) p_mirror_offset->z += box_z; else p_mirror_offset->z -= box_z; 
+    v_offsets.push_back(p_mirror_offset);
+
+    // Apply XYZ eighth-box replicas
+    p_mirror_offset = new vec3<Scalar>(*p_offset);
+    if (p_offset->x < 0) p_mirror_offset->x += box_x; else p_mirror_offset->x -= box_x; 
+    if (p_offset->y < 0) p_mirror_offset->y += box_y; else p_mirror_offset->y -= box_y; 
+    if (p_offset->z < 0) p_mirror_offset->z += box_z; else p_mirror_offset->z -= box_z; 
+    v_offsets.push_back(p_mirror_offset);
+
+  } // end loop over shapes
+
+} // end applyBoundary()
 
